@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,27 +9,27 @@
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-three.prod.js"></script>
   
   <style>
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fafafa; font-family: sans-serif; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, -apple-system, sans-serif; }
     #main-viewer { width: 100%; height: 100vh; display: block; }
     
-    /* واجهة الـ AR المخصصة */
+    /* حاوية كاميرا الـ AR */
     #ar-container { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; background: #000; }
     
-    /* زرار قلب الكاميرا الشيك */
+    /* زرار تبديل الكاميرا الشيك في منتصف الأسفل */
     #flip-cam-btn {
       position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-      background: rgba(255, 255, 255, 0.9); border: none; padding: 12px 24px;
-      border-radius: 30px; font-weight: bold; font-size: 14px; cursor: pointer;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; align-items: center; gap: 8px;
-      transition: 0.2s; z-index: 10000;
+      background: rgba(255, 255, 255, 0.95); color: #111; border: none; padding: 14px 28px;
+      border-radius: 30px; font-weight: bold; font-size: 15px; cursor: pointer;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 8px;
+      transition: 0.2s; z-index: 10000; -webkit-tap-highlight-color: transparent;
     }
     #flip-cam-btn:active { transform: translateX(-50%) scale(0.95); }
     
-    /* زرار الإغلاق للعودة للمتجر */
+    /* زرار إغلاق الـ AR والرجوع للمتجر */
     #close-ar-btn {
       position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.6);
-      color: #fff; border: none; width: 40px; height: 40px; border-radius: 50%;
-      font-size: 20px; cursor: pointer; z-index: 10000;
+      color: #fff; border: none; width: 45px; height: 45px; border-radius: 50%;
+      font-size: 22px; cursor: pointer; z-index: 10000; display: flex; align-items: center; justify-content: center;
     }
   </style>
 </head>
@@ -40,9 +40,9 @@
   <canvas id="texture-canvas" width="1024" height="1024" style="display:none;"></canvas>
 
   <div id="ar-container">
-    <button id="close-ar-btn">✕</button>
+    <button id="close-ar-btn" aria-label="إغلاق">✕</button>
     <button id="flip-cam-btn">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
       تبديل الكاميرا
     </button>
   </div>
@@ -52,21 +52,28 @@
     const canvas = document.getElementById("texture-canvas");
     const ctx = canvas.getContext("2d");
     
-    let currentFacingMode = "user"; // البداية كاميرا أمامية لتجربة الكاب على الوجه
+    let currentFacingMode = "user"; // يبدأ تلقائياً بالكاميرا الأمامية (تجرية الكاب على الوجه)
     let mindarThree = null;
+    let savedText = null;
+    let savedBgImage = null;
 
-    // استلام الرسائل من المتجر (تغيير موديل، لون، لوجو)
+    // 🟢 استقبال الأوامر والداتا ديناميكياً من متجر EasyOrders
     window.addEventListener("message", async (event) => {
       const { type, value } = event.data;
 
+      // 1. تغيير موديل المنتج السادة فوراً بناءً على اسمه
       if (type === 'LOAD_PRODUCT_MODEL' && value) {
-        if (modelViewer.src !== value) modelViewer.src = value;
+        if (modelViewer.src !== value) {
+          modelViewer.src = value;
+        }
         return;
       }
 
+      // 2. صبغ لون الكاب لايف بدقة عالية
       if (type === 'UPDATE_COLOR') {
         await modelViewer.updateComplete;
         if (!modelViewer.model) return;
+        
         const material = modelViewer.model.materials[0];
         if (material) {
           material.pbrMetallicRoughness.setBaseColorFactor([value.r, value.g, value.b, value.a]);
@@ -74,27 +81,53 @@
         return;
       }
 
-      if (type === 'UPDATE_TEXT') { redrawCanvas(value, null); return; }
+      // 3. استقبال النصوص واللوجوهات وحقنها
+      if (type === 'UPDATE_TEXT') { 
+        savedText = value;
+        redrawCanvas(savedText, savedBgImage); 
+        return; 
+      }
+      
       if (type === 'UPDATE_IMAGE') {
+        if (!value) {
+          savedBgImage = null;
+          redrawCanvas(savedText, null);
+          return;
+        }
         const img = new Image();
+        img.crossOrigin = "anonymous"; // لمنع مشاكل الحماية أثناء دمج الصور
         img.src = value;
-        img.onload = () => redrawCanvas(null, img);
+        img.onload = () => {
+          savedBgImage = img;
+          redrawCanvas(savedText, savedBgImage);
+        };
+        return;
+      }
+
+      // 4. تشغيل الـ AR عند استقبال أمر التفعيل من المتجر
+      if (type === 'START_AR_EXPERIENCE') {
+        startAR(currentFacingMode);
         return;
       }
     });
 
-    // دالة حقن اللوجو والنص على الماتريال
+    // دالة رسم ودمج التصميم وتوجيهه لمنطقة الطباعة المحددة في بلندر
     function redrawCanvas(text, bgImage) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // وضع اللوجو متمركش في مساحة التصميم
       if (bgImage) ctx.drawImage(bgImage, 256, 256, 512, 512);
+      
+      // وضع النص المخصص أسفل اللوجو
       if (text) {
         ctx.fillStyle = "#010101";
         ctx.font = "bold 50px Almarai, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(text, 512, 800);
+        ctx.fillText(text, 512, 850);
       }
+      
       if (modelViewer.model) {
-        // البحث عن منطقة الطباعة المحددة في بلندر أو الماتريال الثانية
+        // ذكاء اصطناعي للبحث عن خامة 'printable_area' المفصولة في بلندر، وإذا لم تجدها تستخدم الماتريال الثانية كخيار احتياطي
         const material = modelViewer.model.materials.find(m => m.name === 'printable_area') || modelViewer.model.materials[1];
         if (material) {
           modelViewer.createHTMLCanvasTexture(canvas).then((texture) => {
@@ -104,27 +137,28 @@
       }
     }
 
-    // --- نظام الـ WebAR المتطور لتبديل الكاميرات ---
+    // --- محرك الـ WebAR المتقدم (تتبع الوجه والتبديل) ---
     
     async function startAR(mode) {
       const container = document.getElementById("ar-container");
       container.style.display = "block";
       
-      // بناء مشهد الـ AR بناءً على الكاميرا المختارة
+      // تشغيل مكتبة تتبع ملامح الوجه بناء على الكاميرا المحددة
       mindarThree = new window.MINDAR.FACE.MindARThree({
         container: container,
-        facingMode: mode // "user" للأمامية أو "environment" للخلفية
+        facingMode: mode
       });
       
-      const {renderer, scene, camera} = mindarThree;
+      const { renderer, scene, camera } = mindarThree;
       
-      // ربط الموديل الـ 3D بالوجه (الanchor رقم 10 يمثل الجبهة لكاب مضبوط)
+      // نقطة التثبيت رقم 10 في MindAR هي الجبهة (مثالية جداً لارتداء الكابات)
       const anchor = mindarThree.addAnchor(10);
       
-      // تجهيز موديل الـ GLB الحالي ليظهر في الكاميرا
       if (modelViewer.model) {
+        // نسخ الموديل الحالي بكامل ألوانه وتصميمه وعرضه في الكاميرا
         const clonedModel = modelViewer.model.clone();
-        clonedModel.scale.set(0.5, 0.5, 0.5); // ضبط المقاس ليناسب الرأس
+        clonedModel.scale.set(0.45, 0.45, 0.45); // مقاس متناسق هندسياً مع حجم الرأس الافتراضي
+        clonedModel.position.set(0, 0.1, -0.1); // ترحيل بسيط للأعلى ليركب الكاب فوق الرأس تماماً
         anchor.group.add(clonedModel);
       }
 
@@ -138,30 +172,22 @@
       if (mindarThree) {
         mindarThree.stop();
         const container = document.getElementById("ar-container");
-        // تنظيف الكاميرا القديمة منعاً لتهنيج الموبايل
         const video = container.querySelector("video");
-        if (video) video.remove();
+        if (video) video.remove(); // تنظيف فوري للكاميرا لعدم استهلاك رامات الموبايل
         container.style.display = "none";
       }
     }
 
-    // تشغيل زر التبديل بين الأمامية والخلفية
+    // تفعيل زر قلب الكاميرا التلقائي (أمامية ⇄ خلفية)
     document.getElementById("flip-cam-btn").addEventListener("click", async () => {
       stopAR();
       currentFacingMode = (currentFacingMode === "user") ? "environment" : "user";
       await startAR(currentFacingMode);
     });
 
-    // زر إغلاق الـ AR والعودة للمتجر
+    // زر العودة للمتجر وإغلاق الكاميرا
     document.getElementById("close-ar-btn").addEventListener("click", () => {
       stopAR();
-    });
-
-    // استقبال أمر تفعيل الـ AR من زر خارجي في المتجر إذا أردت
-    window.addEventListener("message", (e) => {
-      if (e.data.type === 'START_AR_EXPERIENCE') {
-        startAR(currentFacingMode);
-      }
     });
   </script>
 </body>
